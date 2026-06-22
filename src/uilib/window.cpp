@@ -6,6 +6,7 @@
 #include <SDL2/SDL_syswm.h>
 #include <algorithm>
 #include <string>
+#include "Tracy.hpp"
 
 
 namespace Ui {
@@ -77,6 +78,7 @@ Window::~Window()
 
 void Window::clear()
 {
+    ZoneScopedN("Window::clear");
     auto& c = _backgroundColor;
     if (SDL_SetRenderDrawColor(_ren, c.r, c.g, c.b, 255) != 0) {
         fprintf(stderr, "Window: error setting draw color: %s\n", SDL_GetError());
@@ -87,7 +89,9 @@ void Window::clear()
 }
 void Window::present()
 {
+    ZoneScopedN("Window::present");
     SDL_RenderPresent(_ren);
+    FrameMark;
 }
 
 void Window::render(Renderer renderer, int offX, int offY)
@@ -97,6 +101,7 @@ void Window::render(Renderer renderer, int offX, int offY)
 
 void Window::render()
 {
+    ZoneScopedN("Window::render");
     clear();
     render(_ren, 0, 0);
     present();

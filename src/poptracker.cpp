@@ -23,6 +23,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #endif
+#include "Tracy.hpp"
 using nlohmann::json;
 using Ui::Dlg;
 
@@ -416,6 +417,7 @@ PopTracker::~PopTracker()
 
 bool PopTracker::start()
 {
+    ZoneScoped;
     Ui::Position pos = WINDOW_DEFAULT_POSITION;
     Ui::Size size = {0,0};
     bool alwaysOnTop = false;
@@ -937,13 +939,18 @@ bool PopTracker::start()
 
 bool PopTracker::frame()
 {
+    ZoneScopedN("PopTracker::frame");
+    
     if (_asio) {
+        ZoneScopedN("ASIO");
         _asio->poll();
         // when all tasks are done, poll() will stop(). Reset for next request.
         if (_asio->stopped()) _asio->restart();
     }
-    if (_scriptHost)
+    if (_scriptHost) {
+        ZoneScopedN("Script Host");
         _scriptHost->onFrame();
+    }
 
     auto now = std::chrono::steady_clock::now();
 

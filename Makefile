@@ -51,7 +51,7 @@ BENCH_SRC = $(filter-out $(SRC_DIR)/main.cpp,$(SRC)) \
       $(wildcard $(BENCH_DIR)/*/*.cpp) \
       $(wildcard $(LIB_DIR)/sltbench/src/*.cpp)
 INCLUDE_DIRS = -Ilib -Ilib/lua -Ilib/asio/include -DASIO_STANDALONE -Ilib/miniz -Ilib/json/include -Ilib/valijson/include -Ilib/tinyfiledialogs -Ilib/wswrap/include -Ilib/sltbench/include \
- -Ilib/fmt/include \
+ -Ilib/fmt/include -Ilib/tracy/public/tracy \
  #-Ilib/gifdec
 WIN32_INCLUDE_DIRS =  -DWIN32_LEAN_AND_MEAN -Iwin32-lib/i686/include -Ilib/gmock-win32/include
 WIN32_LIB_DIRS = -L./win32-lib/i686/bin -L./win32-lib/i686/lib

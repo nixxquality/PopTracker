@@ -9,6 +9,8 @@
 #include <stdio.h>
 #endif
 
+#include "Tracy.hpp"
+
 namespace Ui {
 
 class Container : public Widget {
@@ -80,6 +82,7 @@ public:
     }
 
     void render(Renderer renderer, const int offX, const int offY) override {
+        ZoneScopedN("Container::render");
         if (_backgroundColor.a > 0) {
             const auto& c = _backgroundColor;
             SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);

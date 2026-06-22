@@ -6,6 +6,7 @@
 #include "../core/fileutil.h"
 #include "droptype.h"
 #include "timer.h"
+#include "Tracy.hpp"
 
 
 #if defined __LINUX__ || defined __FREEBSD__ || defined __OPENBSD__ || defined __NETBSD__
@@ -139,6 +140,7 @@ int Ui::eventFilter(void* userdata, SDL_Event *ev)
 
 bool Ui::render()
 {
+    ZoneScopedN("Ui::render");
     // FPS limiter:
     // stay as long in the event loop as possible. sleep to switch tasks.
     // if not using vsync redraw ASAP for destructive events
@@ -163,262 +165,265 @@ bool Ui::render()
     
     const uint32_t t0 = SDL_GetTicks(); // TODO: microseconds
     uint32_t t1;
-    
-    do {
-#ifndef __EMSCRIPTEN__
-        SDL_Delay(1); // let the kernel switch tasks to fill the event queue
-#endif
-        bool destructiveEvent = false;
-        
-        // Work around SDL eating mouse input when switching windows
-        // read below at SDL_WINDOWEVENT_FOCUS_GAINED
-        if (_globalMouseButtons) {
-            if (!SDL_GetGlobalMouseState(nullptr, nullptr)) {
-#ifdef UI_ENABLE_UNFOCUSED_CLICK_HACK
-                // untracked mouse button released ...
-                SDL_Window* win = SDL_GetMouseFocus();
-                if (win) {
-                    // ... inside window -> fire event
-                    int x,y;
-                    SDL_GetMouseState(&x, &y);
-                    SDL_Event ev = {};
-                    ev.type = SDL_MOUSEBUTTONDOWN;
-                    ev.button.x = (Sint32)x;
-                    ev.button.y = (Sint32)y;
-                    for (uint8_t button=0; button < sizeof(_globalMouseButtons) * 8; ++button) {
-                        if (_globalMouseButtons & (1 << button)) {
-                            ev.button.button = button + 1; // button enum starts at 1
-                            break;
-                        }
-                    }
-                    ev.button.windowID = SDL_GetWindowID(win);
-                    SDL_PushEvent(&ev);
-                    ev.type = SDL_MOUSEBUTTONUP;
-                    SDL_PushEvent(&ev);
-                }
-#endif // UI_ENABLE_UNFOCUSED_CLICK_HACK
-                _globalMouseButtons = 0;
-            }
-        }
-        
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            switch (ev.type) {
-                case SDL_QUIT: {
-                    printf("Ui: Quit\n");
-                    return false;
-                }
-                case SDL_MOUSEBUTTONDOWN: {
-                    // clear/cancel cached "global" event (see above or below)
-                    _globalMouseButtons = 0;
-                    const int button = ev.button.button;
-                    const int x = ev.button.x;
-                    const int y = ev.button.y;
-                    auto winIt = _windows.find(ev.button.windowID);
-                    if (winIt != _windows.end()) {
-                        winIt->second->onMouseDown.emit(winIt->second, x, y, button);
-                    }
-                    break;
-                }
-                case SDL_MOUSEBUTTONUP: {
-                    EVENT_LOCK(this);
-                    const int button = ev.button.button;
-                    const int x = ev.button.x;
-                    const int y = ev.button.y;
-                    auto winIt = _windows.find(ev.button.windowID);
-                    if (winIt != _windows.end()) {
-                        winIt->second->onClick.emit(winIt->second, x, y, button);
-                    }
-                    EVENT_UNLOCK(this);
-                    break;
-                }
-                case SDL_MOUSEMOTION: {
-                    EVENT_LOCK(this);
-                    unsigned buttons = ev.motion.state;
-                    int x = ev.motion.x;
-                    int y = ev.motion.y;
-                    auto winIt = _windows.find(ev.motion.windowID);
-                    if (winIt != _windows.end()) {
-                        winIt->second->onMouseMove.emit(winIt->second, x, y, buttons);
-                    }
-                    EVENT_UNLOCK(this);
-                    break;
-                }
-                case SDL_MOUSEWHEEL: {
-                    EVENT_LOCK(this);
-                    int x = ev.wheel.x * 48;
-                    int y = ev.wheel.y * 48;
-                    unsigned mod = 0;
-                    auto winIt = _windows.find(ev.motion.windowID);
-                    if (winIt != _windows.end()) {
-                        winIt->second->onScroll.emit(winIt->second, x, y, mod);
-                    }
-                    EVENT_UNLOCK(this);
-                    break;
-                }
-                case SDL_KEYDOWN: {
-                    EVENT_LOCK(this);
-                    if (!ev.key.repeat) {
-                        int key = (int)ev.key.keysym.sym;
-                        const uint16_t mask = KMOD_CTRL | KMOD_SHIFT | KMOD_GUI;
-                        int mod = (int)(ev.key.keysym.mod & mask);
-                        for (const auto& hotkey: _hotkeys) {
-                            if (key == hotkey.key && mod == hotkey.mod) {
-                                onHotkey.emit(this, hotkey);
+
+    {
+        ZoneScopedN("SDL Polling");
+        do {
+    #ifndef __EMSCRIPTEN__
+            SDL_Delay(1); // let the kernel switch tasks to fill the event queue
+    #endif
+            bool destructiveEvent = false;
+            
+            // Work around SDL eating mouse input when switching windows
+            // read below at SDL_WINDOWEVENT_FOCUS_GAINED
+            if (_globalMouseButtons) {
+                if (!SDL_GetGlobalMouseState(nullptr, nullptr)) {
+    #ifdef UI_ENABLE_UNFOCUSED_CLICK_HACK
+                    // untracked mouse button released ...
+                    SDL_Window* win = SDL_GetMouseFocus();
+                    if (win) {
+                        // ... inside window -> fire event
+                        int x,y;
+                        SDL_GetMouseState(&x, &y);
+                        SDL_Event ev = {};
+                        ev.type = SDL_MOUSEBUTTONDOWN;
+                        ev.button.x = (Sint32)x;
+                        ev.button.y = (Sint32)y;
+                        for (uint8_t button=0; button < sizeof(_globalMouseButtons) * 8; ++button) {
+                            if (_globalMouseButtons & (1 << button)) {
+                                ev.button.button = button + 1; // button enum starts at 1
                                 break;
                             }
-                            if (hotkey.mod & ~mask) {
-                                fprintf(stderr, "Invalid hotkey %d+%d: modifier masked out\n",
-                                    hotkey.key, hotkey.mod);
-                            }
                         }
+                        ev.button.windowID = SDL_GetWindowID(win);
+                        SDL_PushEvent(&ev);
+                        ev.type = SDL_MOUSEBUTTONUP;
+                        SDL_PushEvent(&ev);
                     }
-                    EVENT_UNLOCK(this);
-                    break;
+    #endif // UI_ENABLE_UNFOCUSED_CLICK_HACK
+                    _globalMouseButtons = 0;
                 }
-                case SDL_WINDOWEVENT: {
-                    if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                        EVENT_LOCK(this);
-#if 0
-                        // NOTE: SDL should merge resizes, we may still detect and warn if multiple are in the queue
-                        SDL_Event next[4+4+1];
-                        int n = SDL_PeepEvents(next, sizeof(next)/sizeof(*next),
-                                SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
-                        int more = 0;
-                        for (int i=0; i<n; i++) {
-                            if (next[i].type == ev.type &&
-                                    next[i].window.event == ev.window.event &&
-                                    next[i].window.windowID == ev.window.windowID) {
-                                more++;
-                            }
-                        }
-                        if (more) {
-                            fprintf(stderr, "WARNING: %d extra resizes for the same window scheduled!\n", more);
-                        }
-#endif
-                        int x = ev.window.data1;
-                        int y = ev.window.data2;
-                        auto winit = _windows.find(ev.window.windowID);
-                        if (winit != _windows.end()) {
-                            winit->second->setSize({x,y});
-                            destructiveEvent = true;
-                        }
-                        EVENT_UNLOCK(this);
-                    }
-                    else if (ev.window.event == SDL_WINDOWEVENT_CLOSE) {
-                        EVENT_LOCK(this);
-                        if (_windows.begin() != _windows.end() && _windows.begin()->first == ev.window.windowID) {
-                            // Quit application when closing main window
-                            // TODO: handle this through a callback
-                            printf("Ui: Main window closed\n");
-                            return false;
-                        }
-                        auto winit = _windows.find(ev.window.windowID);
-                        if (winit != _windows.end()) {
-                            onWindowDestroyed.emit(this,winit->second);
-                            delete winit->second;
-                            _windows.erase(winit);
-                        }
-                        EVENT_UNLOCK(this);
-                    }
-                    else if (ev.window.event == SDL_WINDOWEVENT_LEAVE) {
-                        // NOTE: SDL does not have one cursor per window, which is complete BS
-                        EVENT_LOCK(this);
-                        auto winit = _windows.find(ev.window.windowID);
-                        if (winit != _windows.end()) {
-                            winit->second->onMouseLeave.emit(winit->second);
-                        }
-                        EVENT_UNLOCK(this);
-                    }
-                    else if (ev.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
-                        // SDL2 may eat the mouse event that was used to get focus,
-                        // which is wrong since keyboard focus != mouse focus.
-                        // We check for global mouse down on focus and
-                        // schedule to fire onClick on global mouse up
-                        unsigned button = SDL_GetGlobalMouseState(nullptr, nullptr);
-                        if (button && _lastEventType != SDL_MOUSEBUTTONDOWN) {
-                            SDL_Window* win = SDL_GetMouseFocus();
-                            if (win) {
-                                _globalMouseButtons = button;
-                            }
-                        }
-                    }
-                    #if 0 // this is not necessary
-                    else if (ev.window.event == SDL_WINDOWEVENT_TAKE_FOCUS) {
-                        // focus offered -> grab focus
-                        EVENT_LOCK_GUARD(this);
-                        auto winit = _windows.find(ev.window.windowID);
-                        if (winit != _windows.end()) {
-                            winit->second->grabFocus();
-                        }
-                    }
-                    #endif
-                    #if 0
-                    else {
-                        printf("Ui: window event %d for %d\n", ev.window.event, ev.window.windowID);
-                    }
-                    #endif
-                    break;
-                }
-                case SDL_DROPBEGIN: {
-                    // this event is more or less useless:
-                    // * it fires on drop, not on drag over
-                    // * it does not contain file/text/mime
-                    break;
-                }
-                case SDL_DROPFILE: {
-                    if (ev.drop.file) {
-                        EVENT_LOCK(this);
-                        auto winit = _windows.find(ev.drop.windowID);
-                        if (winit != _windows.end()) {
-                            bool isDir = fs::is_directory(fs::u8path(ev.drop.file));
-                            winit->second->onDrop.emit(winit->second, 0, 0,
-                                    isDir ? DropType::DIR : DropType::FILE,
-                                    ev.drop.file);
-                        }
-                        EVENT_UNLOCK(this);
-                        free(ev.drop.file);
-                    }
-                    break;
-                }
-                case SDL_DROPTEXT: {
-                    if (ev.drop.file) {
-                        EVENT_LOCK(this);
-                        auto winit = _windows.find(ev.drop.windowID);
-                        if (winit != _windows.end()) {
-                            winit->second->onDrop.emit(winit->second, 0, 0,
-                                    DropType::TEXT,
-                                    ev.drop.file);
-                        }
-                        EVENT_UNLOCK(this);
-                        free(ev.drop.file);
-                    }
-                    break;
-                }
-                case SDL_DROPCOMPLETE: {
-                    break;
-                }
-                #ifndef NDEBUG
-                case SDL_KEYMAPCHANGED: { // bogus event
-                    break;
-                }
-                default: {
-                    printf("Ui: unhandled event %d\n", ev.type);
-                }
-                #endif
             }
+            
+            SDL_Event ev;
+            while (SDL_PollEvent(&ev)) {
+                switch (ev.type) {
+                    case SDL_QUIT: {
+                        printf("Ui: Quit\n");
+                        return false;
+                    }
+                    case SDL_MOUSEBUTTONDOWN: {
+                        // clear/cancel cached "global" event (see above or below)
+                        _globalMouseButtons = 0;
+                        const int button = ev.button.button;
+                        const int x = ev.button.x;
+                        const int y = ev.button.y;
+                        auto winIt = _windows.find(ev.button.windowID);
+                        if (winIt != _windows.end()) {
+                            winIt->second->onMouseDown.emit(winIt->second, x, y, button);
+                        }
+                        break;
+                    }
+                    case SDL_MOUSEBUTTONUP: {
+                        EVENT_LOCK(this);
+                        const int button = ev.button.button;
+                        const int x = ev.button.x;
+                        const int y = ev.button.y;
+                        auto winIt = _windows.find(ev.button.windowID);
+                        if (winIt != _windows.end()) {
+                            winIt->second->onClick.emit(winIt->second, x, y, button);
+                        }
+                        EVENT_UNLOCK(this);
+                        break;
+                    }
+                    case SDL_MOUSEMOTION: {
+                        EVENT_LOCK(this);
+                        unsigned buttons = ev.motion.state;
+                        int x = ev.motion.x;
+                        int y = ev.motion.y;
+                        auto winIt = _windows.find(ev.motion.windowID);
+                        if (winIt != _windows.end()) {
+                            winIt->second->onMouseMove.emit(winIt->second, x, y, buttons);
+                        }
+                        EVENT_UNLOCK(this);
+                        break;
+                    }
+                    case SDL_MOUSEWHEEL: {
+                        EVENT_LOCK(this);
+                        int x = ev.wheel.x * 48;
+                        int y = ev.wheel.y * 48;
+                        unsigned mod = 0;
+                        auto winIt = _windows.find(ev.motion.windowID);
+                        if (winIt != _windows.end()) {
+                            winIt->second->onScroll.emit(winIt->second, x, y, mod);
+                        }
+                        EVENT_UNLOCK(this);
+                        break;
+                    }
+                    case SDL_KEYDOWN: {
+                        EVENT_LOCK(this);
+                        if (!ev.key.repeat) {
+                            int key = (int)ev.key.keysym.sym;
+                            const uint16_t mask = KMOD_CTRL | KMOD_SHIFT | KMOD_GUI;
+                            int mod = (int)(ev.key.keysym.mod & mask);
+                            for (const auto& hotkey: _hotkeys) {
+                                if (key == hotkey.key && mod == hotkey.mod) {
+                                    onHotkey.emit(this, hotkey);
+                                    break;
+                                }
+                                if (hotkey.mod & ~mask) {
+                                    fprintf(stderr, "Invalid hotkey %d+%d: modifier masked out\n",
+                                        hotkey.key, hotkey.mod);
+                                }
+                            }
+                        }
+                        EVENT_UNLOCK(this);
+                        break;
+                    }
+                    case SDL_WINDOWEVENT: {
+                        if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                            EVENT_LOCK(this);
+    #if 0
+                            // NOTE: SDL should merge resizes, we may still detect and warn if multiple are in the queue
+                            SDL_Event next[4+4+1];
+                            int n = SDL_PeepEvents(next, sizeof(next)/sizeof(*next),
+                                    SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
+                            int more = 0;
+                            for (int i=0; i<n; i++) {
+                                if (next[i].type == ev.type &&
+                                        next[i].window.event == ev.window.event &&
+                                        next[i].window.windowID == ev.window.windowID) {
+                                    more++;
+                                }
+                            }
+                            if (more) {
+                                fprintf(stderr, "WARNING: %d extra resizes for the same window scheduled!\n", more);
+                            }
+    #endif
+                            int x = ev.window.data1;
+                            int y = ev.window.data2;
+                            auto winit = _windows.find(ev.window.windowID);
+                            if (winit != _windows.end()) {
+                                winit->second->setSize({x,y});
+                                destructiveEvent = true;
+                            }
+                            EVENT_UNLOCK(this);
+                        }
+                        else if (ev.window.event == SDL_WINDOWEVENT_CLOSE) {
+                            EVENT_LOCK(this);
+                            if (_windows.begin() != _windows.end() && _windows.begin()->first == ev.window.windowID) {
+                                // Quit application when closing main window
+                                // TODO: handle this through a callback
+                                printf("Ui: Main window closed\n");
+                                return false;
+                            }
+                            auto winit = _windows.find(ev.window.windowID);
+                            if (winit != _windows.end()) {
+                                onWindowDestroyed.emit(this,winit->second);
+                                delete winit->second;
+                                _windows.erase(winit);
+                            }
+                            EVENT_UNLOCK(this);
+                        }
+                        else if (ev.window.event == SDL_WINDOWEVENT_LEAVE) {
+                            // NOTE: SDL does not have one cursor per window, which is complete BS
+                            EVENT_LOCK(this);
+                            auto winit = _windows.find(ev.window.windowID);
+                            if (winit != _windows.end()) {
+                                winit->second->onMouseLeave.emit(winit->second);
+                            }
+                            EVENT_UNLOCK(this);
+                        }
+                        else if (ev.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                            // SDL2 may eat the mouse event that was used to get focus,
+                            // which is wrong since keyboard focus != mouse focus.
+                            // We check for global mouse down on focus and
+                            // schedule to fire onClick on global mouse up
+                            unsigned button = SDL_GetGlobalMouseState(nullptr, nullptr);
+                            if (button && _lastEventType != SDL_MOUSEBUTTONDOWN) {
+                                SDL_Window* win = SDL_GetMouseFocus();
+                                if (win) {
+                                    _globalMouseButtons = button;
+                                }
+                            }
+                        }
+                        #if 0 // this is not necessary
+                        else if (ev.window.event == SDL_WINDOWEVENT_TAKE_FOCUS) {
+                            // focus offered -> grab focus
+                            EVENT_LOCK_GUARD(this);
+                            auto winit = _windows.find(ev.window.windowID);
+                            if (winit != _windows.end()) {
+                                winit->second->grabFocus();
+                            }
+                        }
+                        #endif
+                        #if 0
+                        else {
+                            printf("Ui: window event %d for %d\n", ev.window.event, ev.window.windowID);
+                        }
+                        #endif
+                        break;
+                    }
+                    case SDL_DROPBEGIN: {
+                        // this event is more or less useless:
+                        // * it fires on drop, not on drag over
+                        // * it does not contain file/text/mime
+                        break;
+                    }
+                    case SDL_DROPFILE: {
+                        if (ev.drop.file) {
+                            EVENT_LOCK(this);
+                            auto winit = _windows.find(ev.drop.windowID);
+                            if (winit != _windows.end()) {
+                                bool isDir = fs::is_directory(fs::u8path(ev.drop.file));
+                                winit->second->onDrop.emit(winit->second, 0, 0,
+                                        isDir ? DropType::DIR : DropType::FILE,
+                                        ev.drop.file);
+                            }
+                            EVENT_UNLOCK(this);
+                            free(ev.drop.file);
+                        }
+                        break;
+                    }
+                    case SDL_DROPTEXT: {
+                        if (ev.drop.file) {
+                            EVENT_LOCK(this);
+                            auto winit = _windows.find(ev.drop.windowID);
+                            if (winit != _windows.end()) {
+                                winit->second->onDrop.emit(winit->second, 0, 0,
+                                        DropType::TEXT,
+                                        ev.drop.file);
+                            }
+                            EVENT_UNLOCK(this);
+                            free(ev.drop.file);
+                        }
+                        break;
+                    }
+                    case SDL_DROPCOMPLETE: {
+                        break;
+                    }
+                    #ifndef NDEBUG
+                    case SDL_KEYMAPCHANGED: { // bogus event
+                        break;
+                    }
+                    default: {
+                        printf("Ui: unhandled event %d\n", ev.type);
+                    }
+                    #endif
+                }
 
-            _lastEventType = ev.type;
-        }
-        t1 = SDL_GetTicks();
-        #ifndef VSYNC
-        if (destructiveEvent) break; // framebuffer destroyed -> redraw ASAP (unless VSYNC)
-        #endif
-#if defined __EMSCRIPTEN__
-    } while (false); // waiting for events makes no sense in a browser context
-#else
-    } while (_fpsLimit && (FRAME_TIME>_lastRenderDuration && t1-t0+1 < FRAME_TIME-_lastRenderDuration)); // TODO: microseconds?
-#endif
+                _lastEventType = ev.type;
+            }
+            t1 = SDL_GetTicks();
+            #ifndef VSYNC
+            if (destructiveEvent) break; // framebuffer destroyed -> redraw ASAP (unless VSYNC)
+            #endif
+    #if defined __EMSCRIPTEN__
+        } while (false); // waiting for events makes no sense in a browser context
+    #else
+        } while (_fpsLimit && (FRAME_TIME>_lastRenderDuration && t1-t0+1 < FRAME_TIME-_lastRenderDuration)); // TODO: microseconds?
+    #endif
+    }
     
     {
         EVENT_LOCK(this);
@@ -432,6 +437,7 @@ bool Ui::render()
 #if !defined VSYNC && !defined __EMSCRIPTEN__
     if (_fpsLimit)
     {
+        ZoneScopedN("FPS Limit");
         // usleep the rest between last frame's timestamp and now to have a constant frame time
         uint64_t timestamp = getMicroTicks();
         uint64_t now = timestamp;
