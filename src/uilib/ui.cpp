@@ -170,7 +170,10 @@ bool Ui::render()
         ZoneScopedN("SDL Polling");
         do {
     #ifndef __EMSCRIPTEN__
-            SDL_Delay(1); // let the kernel switch tasks to fill the event queue
+            {
+                ZoneScopedN("Sleep");
+                SDL_Delay(1); // let the kernel switch tasks to fill the event queue
+            }
     #endif
             bool destructiveEvent = false;
             
