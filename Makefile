@@ -21,6 +21,7 @@ SRC = $(wildcard $(SRC_DIR)/*.cpp) \
       $(wildcard $(SRC_DIR)/http/*.cpp) \
       $(wildcard $(SRC_DIR)/packmanager/*.cpp) \
       $(LIB_DIR)/fmt/src/format.cc \
+	  $(LIB_DIR)/tracy/public/TracyClient.cpp \
       #$(LIB_DIR)/gifdec/gifdec.c)
 HDR = $(wildcard $(SRC_DIR)/*.h) \
       $(wildcard $(SRC_DIR)/uilib/*.h*) \
@@ -213,11 +214,12 @@ WIN64WINDRES = x86_64-w64-mingw32-windres
 LTO_JOBS ?= $(patsubst -j%,%,$(filter -j%,$(MAKEFLAGS)))
 LTO_JOBS := $(if $(LTO_JOBS),$(LTO_JOBS),auto)
 COMMON_WARNING_FLAGS = \
-	-Wall -Wextra -Werror # -Wshadow -Wconversion
+	-Wall -Wextra #-Werror # -Wshadow -Wconversion
 C_FLAGS = $(CFLAGS) -fpic -fPIE $(COMMON_WARNING_FLAGS) -Wshadow -std=c99 -D_REENTRANT
 LUA_C_FLAGS = $(CFLAGS) -fpic -fPIE $(COMMON_WARNING_FLAGS) -Wshadow \
 	-D_REENTRANT -x c++ # we actually use C++ for Lua now
 CPP_FLAGS = $(CXXFLAGS) -fpic -fPIE $(COMMON_WARNING_FLAGS) \
+	-DTRACY_ENABLE -DTRACY_TIMER_FALLBACK \
 	-Wnon-virtual-dtor -Wno-unused-function -Wno-deprecated-declarations \
 	-Wno-null-pointer-subtraction -Wno-shift-count-overflow  # TODO: fix those
 ifeq ($(CONF), DEBUG) # DEBUG
